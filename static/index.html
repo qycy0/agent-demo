@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行业智能通用运维模型2.0</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="logo-text">行业智能通用运维模型2.0</h1>
+            </div>
+            <div class="header-right">
+                <span class="status-badge">运行中</span>
+            </div>
+        </header>
+        
+        <!-- 主体内容区 -->
+        <div class="app-body">
+            <!-- 侧边栏 -->
+            <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>⚙️ 功能导航</h3>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" data-tab="chat">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">智能对话</span>
+                </button>
+                <button class="nav-btn" data-tab="models">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-text">模型管理</span>
+                </button>
+                <button class="nav-btn" data-tab="tools">
+                    <span class="nav-icon">🔧</span>
+                    <span class="nav-text">工具管理</span>
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="version-info">
+                    <small>Version 2.0</small>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 对话界面 -->
+            <div id="chat-tab" class="tab-content active">
+                <div class="chat-container">
+                    <!-- 配置面板 -->
+                    <div class="config-panel">
+                        <h2>🎛️ 模型与参数</h2>
+                        
+                        <div class="config-section">
+                            <label>选择模型</label>
+                            <select id="model-select" class="form-control">
+                                <option value="">请先注册模型</option>
+                            </select>
+                        </div>
+
+                        <div class="config-section">
+                            <details class="config-expander" open>
+                                <summary>🎚️ 生成参数</summary>
+                                <div class="params-area">
+                                    <div class="param-item">
+                                        <label>Temperature: <span id="temp-value">0.7</span></label>
+                                        <input type="range" id="temperature" class="slider" 
+                                               min="0" max="2" step="0.1" value="0.7">
+                                        <small class="param-hint">控制随机性（0-2）</small>
+                                    </div>
+
+                                    <div class="param-item">
+                                        <label>Max Tokens: <span id="tokens-value">2000</span></label>
+                                        <input type="range" id="max-tokens" class="slider" 
+                                               min="100" max="8000" step="100" value="2000">
+                                        <small class="param-hint">最大输出长度</small>
+                                    </div>
+
+                                    <div class="param-item">
+                                        <label>Top P: <span id="top-p-value">1.0</span></label>
+                                        <input type="range" id="top-p" class="slider" 
+                                               min="0" max="1" step="0.05" value="1.0">
+                                        <small class="param-hint">核采样概率</small>
+                                    </div>
+
+                                    <div class="param-item">
+                                        <label>Presence Penalty: <span id="presence-value">0.0</span></label>
+                                        <input type="range" id="presence-penalty" class="slider" 
+                                               min="-2" max="2" step="0.1" value="0">
+                                        <small class="param-hint">话题新颖度（-2到2）</small>
+                                    </div>
+
+                                    <div class="param-item">
+                                        <label>Frequency Penalty: <span id="frequency-value">0.0</span></label>
+                                        <input type="range" id="frequency-penalty" class="slider" 
+                                               min="-2" max="2" step="0.1" value="0">
+                                        <small class="param-hint">重复惩罚（-2到2）</small>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+
+                        <div class="config-section">
+                            <details class="config-expander">
+                                <summary>🔧 启用工具</summary>
+                                <div class="tool-settings">
+                                    <div class="tool-option">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="auto-parse-tools" class="toggle-switch">
+                                            <span class="switch-slider"></span>
+                                            <span class="switch-text">🤖 自动解析工具调用</span>
+                                        </label>
+                                        <small class="form-hint">自动从模型输出中解析并执行工具调用</small>
+                                    </div>
+                                    <div id="tools-checkboxes" class="tools-list">
+                                        <p class="text-muted">暂无可用工具</p>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+
+                        <div class="config-section">
+                            <details class="config-expander">
+                                <summary>📎 媒体上传</summary>
+                                <div class="upload-area">
+                                    <label class="upload-label">
+                                        <span>📷 选择图片或视频（可多选）</span>
+                                        <input type="file" id="media-upload" accept="image/*,video/*" class="form-control" multiple>
+                                    </label>
+                                    <div id="media-preview" class="media-preview"></div>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <!-- 聊天区域 -->
+                    <div class="chat-area">
+                        <div class="chat-header">
+                            <h2>💬 对话窗口</h2>
+                            <button id="clear-chat" class="btn btn-clear">🗑️ 清空对话</button>
+                        </div>
+                        
+                        <div id="chat-messages" class="chat-messages">
+                            <div class="welcome-message">
+                                <div class="welcome-icon">🤖</div>
+                                <h3>欢迎使用行业智能通用运维模型2.0</h3>
+                                <p>请先在左侧配置模型和工具，然后开始智能对话</p>
+                            </div>
+                        </div>
+
+                        <div class="chat-input-area">
+                            <textarea id="user-input" class="chat-input" 
+                                      placeholder="输入您的消息..." rows="3"></textarea>
+                            <button id="send-btn" class="btn btn-primary">发送</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模型管理界面 -->
+            <div id="models-tab" class="tab-content">
+                <div class="management-container">
+                    <div class="header">
+                        <h2>模型管理</h2>
+                        <button id="add-model-btn" class="btn btn-primary">+ 注册新模型</button>
+                    </div>
+
+                    <div id="models-list" class="items-list">
+                        <p class="text-muted">暂无已注册的模型</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 工具管理界面 -->
+            <div id="tools-tab" class="tab-content">
+                <div class="management-container">
+                    <div class="header">
+                        <h2>工具管理</h2>
+                        <button id="add-tool-btn" class="btn btn-primary">+ 注册新工具</button>
+                    </div>
+
+                    <div id="tools-list" class="items-list">
+                        <p class="text-muted">暂无已注册的工具</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+        </div>
+    </div>
+
+    <!-- 模型注册弹窗 -->
+    <div id="model-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>注册新模型</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>显示名称 *</label>
+                    <input type="text" id="new-model-name" class="form-control" 
+                           placeholder="例如: GPT-4-Turbo">
+                    <small class="form-hint">在界面上显示的模型名称</small>
+                </div>
+                <div class="form-group">
+                    <label>实际模型名 *</label>
+                    <input type="text" id="new-model-actual-name" class="form-control" 
+                           placeholder="例如: gpt-4-turbo-preview">
+                    <small class="form-hint">调用 API 时使用的模型标识</small>
+                </div>
+                <div class="form-group">
+                    <label>API URL *</label>
+                    <input type="text" id="new-model-url" class="form-control" 
+                           placeholder="例如: https://api.openai.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="new-model-key" class="form-control" 
+                           placeholder="输入 API Key（可选）">
+                </div>
+                <div class="form-group">
+                    <label>模型类型</label>
+                    <select id="new-model-type" class="form-control">
+                        <option value="openai">OpenAI 兼容</option>
+                        <option value="claude">Claude</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button id="test-model-btn" class="btn btn-secondary">测试连接</button>
+                    <button id="save-model-btn" class="btn btn-primary">保存</button>
+                </div>
+                <div id="model-test-result" class="test-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模型编辑弹窗 -->
+    <div id="edit-model-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>编辑模型</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>显示名称</label>
+                    <input type="text" id="edit-model-name" class="form-control" readonly>
+                    <small class="form-hint">模型名称不可修改</small>
+                </div>
+                <div class="form-group">
+                    <label>系统提示词</label>
+                    <textarea id="edit-model-system-prompt" class="form-control" rows="8"
+                              placeholder="输入系统提示词，用于指导模型的行为和角色..."></textarea>
+                    <small class="form-hint">系统提示词会在每次对话开始时发送给模型</small>
+                </div>
+                <div class="form-actions">
+                    <button id="update-model-btn" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工具注册弹窗 -->
+    <div id="tool-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>注册新工具</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>工具类型 *</label>
+                    <select id="new-tool-type" class="form-control">
+                        <option value="builtin">内置工具</option>
+                        <option value="api">外部 API</option>
+                        <option value="code">自定义代码</option>
+                    </select>
+                    <small class="form-hint">选择工具的实现方式</small>
+                </div>
+
+                <!-- 内置工具选择 -->
+                <div id="builtin-tool-section" class="tool-config-section">
+                    <div class="form-group">
+                        <label>选择内置工具 *</label>
+                        <select id="builtin-tool-select" class="form-control">
+                            <option value="">-- 请选择 --</option>
+                        </select>
+                        <small class="form-hint">系统提供的预制工具</small>
+                    </div>
+                    <div id="builtin-tool-info" class="info-box"></div>
+                </div>
+
+                <!-- 外部API配置 -->
+                <div id="api-tool-section" class="tool-config-section" style="display: none;">
+                    <div class="form-group">
+                        <label>工具名称 *</label>
+                        <input type="text" id="api-tool-name" class="form-control" 
+                               placeholder="例如: web_search">
+                    </div>
+                    <div class="form-group">
+                        <label>工具描述 *</label>
+                        <textarea id="api-tool-description" class="form-control" rows="3"
+                                  placeholder="描述工具的功能和用途"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>API URL *</label>
+                        <input type="text" id="api-tool-url" class="form-control" 
+                               placeholder="例如: https://api.example.com/search">
+                    </div>
+                    <div class="form-group">
+                        <label>HTTP 方法</label>
+                        <select id="api-tool-method" class="form-control">
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>请求头 (JSON)</label>
+                        <textarea id="api-tool-headers" class="form-control code-input" rows="4"
+                                  placeholder='例如:
+{
+  "Authorization": "Bearer YOUR_TOKEN",
+  "Content-Type": "application/json"
+}'></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>参数定义 (JSON Schema) *</label>
+                        <textarea id="api-tool-parameters" class="form-control code-input" rows="8"
+                                  placeholder='例如:
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "搜索关键词"
+    }
+  },
+  "required": ["query"]
+}'></textarea>
+                    </div>
+                </div>
+
+                <!-- 自定义代码配置 -->
+                <div id="code-tool-section" class="tool-config-section" style="display: none;">
+                    <div class="form-group">
+                        <label>工具名称 *</label>
+                        <input type="text" id="code-tool-name" class="form-control" 
+                               placeholder="例如: custom_processor">
+                    </div>
+                    <div class="form-group">
+                        <label>工具描述 *</label>
+                        <textarea id="code-tool-description" class="form-control" rows="3"
+                                  placeholder="描述工具的功能和用途"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Python 代码 *</label>
+                        <textarea id="code-tool-code" class="form-control code-input" rows="10"
+                                  placeholder='例如:
+# params 变量包含传入的参数
+# 将结果赋值给 result 变量
+
+result = {
+    "output": params.get("input", "").upper()
+}'></textarea>
+                        <small class="form-hint">⚠️ 代码将在服务器端执行，请确保安全性</small>
+                    </div>
+                    <div class="form-group">
+                        <label>参数定义 (JSON Schema) *</label>
+                        <textarea id="code-tool-parameters" class="form-control code-input" rows="8"
+                                  placeholder='例如:
+{
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "string",
+      "description": "要处理的文本"
+    }
+  },
+  "required": ["input"]
+}'></textarea>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button id="save-tool-btn" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
