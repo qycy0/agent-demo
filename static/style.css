@@ -1331,3 +1331,153 @@ body {
     max-height: 200px;
     overflow-y: auto;
 }
+
+/* ========== 消息详情面板 ========== */
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.message-details-btn {
+    background: transparent;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0.6;
+    transition: all 0.2s;
+}
+
+.message-details-btn:hover {
+    opacity: 1;
+    border-color: var(--primary-color);
+    background-color: rgba(255, 75, 75, 0.05);
+}
+
+.message-details-btn.active {
+    opacity: 1;
+    border-color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.message-details-panel {
+    margin-top: 12px;
+    padding: 12px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e5e5e5;
+    font-size: 13px;
+}
+
+.details-header {
+    font-weight: 600;
+    color: #666;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+.details-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.details-item {
+    background: white;
+    padding: 10px;
+    border-radius: 6px;
+    border-left: 3px solid #ccc;
+}
+
+.details-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.details-item-title {
+    font-weight: 600;
+    color: #333;
+    font-size: 13px;
+}
+
+.details-item-time {
+    font-size: 11px;
+    color: #999;
+}
+
+.details-item-content {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #666;
+}
+
+.details-item-content pre {
+    background-color: #f5f5f5;
+    padding: 8px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    margin: 5px 0 0 0;
+}
+
+.details-item-status {
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.status-executing {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.details-item-status pre {
+    background-color: rgba(0,0,0,0.05);
+    padding: 8px;
+    border-radius: 4px;
+    margin-top: 5px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* 不同类型的详情项颜色 */
+.details-iteration {
+    border-left-color: var(--primary-color);
+}
+
+.details-thinking {
+    border-left-color: #9c27b0;
+}
+
+.details-tool_call {
+    border-left-color: #ff9800;
+}
+
+.details-info {
+    border-left-color: #2196f3;
+}
+
+.details-warning {
+    border-left-color: #ffc107;
+}

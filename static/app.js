@@ -266,14 +266,19 @@ async function sendMessage() {
     let buffer = '';  // 用于缓存内容，处理 <think> 标签
     
     try {
-        const response = await fetch(`${API_BASE}/api/chat/stream`, {
+        // 检查是否启用自动解析
+        const autoParseEnabled = elements.autoParseTools && elements.autoParseTools.checked;
+        const endpoint = autoParseEnabled ? '/api/chat/mcp' : '/api/chat/stream';
+        
+        const response = await fetch(`${API_BASE}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 model_id: modelId,
                 messages: currentMessages,
                 enabled_tools: enabledTools,
-                params: params
+                params: params,
+                auto_parse: autoParseEnabled
             }),
             signal: abortController.signal
         });
@@ -297,6 +302,12 @@ async function sendMessage() {
                 try {
                     const parsed = JSON.parse(data);
                     
+                    // 处理MCP特有事件
+                    if (autoParseEnabled) {
+                        handleMCPEvent(parsed, messageBody, statusDiv, textDiv, thinkingDiv, contentDiv);
+                        // MCP事件也包含普通事件，继续处理
+                    }
+                    
                     if (parsed.type === 'status') {
                         // 更新状态
                         if (parsed.status === 'thinking') {
@@ -319,6 +330,8 @@ async function sendMessage() {
                         }
                     } else if (parsed.type === 'error') {
                         // 显示错误信息
+                        statusDiv.textContent = 'error';
+                        statusDiv.style.color = '#ff4b4b';
                         textDiv.textContent = parsed.error;
                         textDiv.style.color = '#ff4b4b';
                         if (thinkingDiv) {
@@ -360,7 +373,8 @@ async function sendMessage() {
                         }
                         
                         // 如果启用了自动解析工具调用，尝试解析并执行
-                        if (elements.autoParseTools && elements.autoParseTools.checked && fullContent) {
+                        // 注意：在MCP模式下不需要这个，因为MCP已经处理了
+                        if (!autoParseEnabled && elements.autoParseTools && elements.autoParseTools.checked && fullContent) {
                             await autoParseAndExecuteTools(fullContent, textDiv, assistantMessageDiv);
                         }
                     }
@@ -421,12 +435,43 @@ function appendMessage(role, content, mediaList = null) {
     const messageBody = document.createElement('div');
     messageBody.className = 'message-body';
     
-    // 如果是 assistant，添加状态指示器
+    // 如果是 assistant，添加状态指示器和详情按钮
     if (role === 'assistant') {
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'message-header';
+        
         const status = document.createElement('div');
         status.className = 'message-status';
         status.textContent = 'thinking...';
-        messageBody.appendChild(status);
+        headerDiv.appendChild(status);
+        
+        // 添加详情按钮（初始隐藏）
+        const detailsBtn = document.createElement('button');
+        detailsBtn.className = 'message-details-btn';
+        detailsBtn.innerHTML = '📋';
+        detailsBtn.title = '查看详细信息';
+        detailsBtn.style.display = 'none';
+        detailsBtn.onclick = function() {
+            const detailsPanel = messageBody.querySelector('.message-details-panel');
+            if (detailsPanel) {
+                const isHidden = detailsPanel.style.display === 'none';
+                detailsPanel.style.display = isHidden ? 'block' : 'none';
+                detailsBtn.classList.toggle('active', isHidden);
+            }
+        };
+        headerDiv.appendChild(detailsBtn);
+        
+        messageBody.appendChild(headerDiv);
+        
+        // 添加详情面板（初始隐藏）
+        const detailsPanel = document.createElement('div');
+        detailsPanel.className = 'message-details-panel';
+        detailsPanel.style.display = 'none';
+        detailsPanel.innerHTML = `
+            <div class="details-header">💭 处理过程详情</div>
+            <div class="details-content"></div>
+        `;
+        messageBody.appendChild(detailsPanel);
     }
     
     const contentDiv = document.createElement('div');
@@ -986,6 +1031,14 @@ function parseThinkingContent(text) {
     // 移除 <think></think> 标签，只保留外部内容
     content = text.replace(thinkRegex, '');
     
+    // 移除所有格式的工具调用标签
+    // 格式1: <tool_call>...</tool_call>
+    content = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    // 格式2: <tool_call ... />
+    content = content.replace(/<tool_call[^>]*?\/>/g, '');
+    // 格式3: 函数调用格式 function_name({...})
+    content = content.replace(/\w+\s*\(\s*\{[\s\S]*?\}\s*\)/g, '');
+    
     // 如果有未闭合的 <think> 标签
     const openThinkIndex = text.lastIndexOf('<think>');
     const closeThinkIndex = text.lastIndexOf('</think>');
@@ -1423,5 +1476,186 @@ async function autoParseAndExecuteTools(content, textDiv, messageDiv) {
     } catch (error) {
         console.error('自动解析工具调用失败:', error);
     }
+}
+
+// ==================== MCP事件处理 ====================
+
+function handleMCPEvent(event, messageBody, statusDiv, textDiv, thinkingDiv, contentDiv) {
+    /**
+     * 处理MCP事件，记录详细过程信息
+     */
+    const detailsPanel = messageBody.querySelector('.message-details-panel');
+    if (!detailsPanel) return;
+    
+    const detailsContent = detailsPanel.querySelector('.details-content');
+    const detailsBtn = messageBody.querySelector('.message-details-btn');
+    
+    switch (event.type) {
+        case 'iteration_start':
+            // 新的迭代开始
+            addDetailsItem(detailsContent, {
+                type: 'iteration',
+                title: `🔄 第 ${event.iteration} 轮处理`,
+                time: formatTime(event.timestamp)
+            });
+            // 显示详情按钮
+            if (detailsBtn) detailsBtn.style.display = 'inline-flex';
+            break;
+            
+        case 'thinking_extracted':
+            // 提取到thinking内容
+            addDetailsItem(detailsContent, {
+                type: 'thinking',
+                title: '💭 模型思考',
+                content: event.thinking,
+                time: formatTime(event.timestamp)
+            });
+            break;
+            
+        case 'tool_calls_parsed':
+            // 解析到工具调用
+            addDetailsItem(detailsContent, {
+                type: 'info',
+                title: `🔍 检测到 ${event.count} 个工具调用`,
+                time: formatTime(event.timestamp)
+            });
+            break;
+            
+        case 'tool_call_start':
+            // 工具调用开始
+            const toolCallId = `tool-${Date.now()}-${Math.random()}`;
+            addDetailsItem(detailsContent, {
+                type: 'tool_call',
+                id: toolCallId,
+                title: `🔧 调用工具: ${event.name}`,
+                content: `参数: ${JSON.stringify(event.arguments, null, 2)}`,
+                status: 'executing',
+                time: formatTime(event.timestamp)
+            });
+            // 更新状态显示
+            if (statusDiv) {
+                statusDiv.textContent = `🔧 调用 ${event.name}...`;
+            }
+            break;
+            
+        case 'tool_call_complete':
+            // 工具调用完成
+            updateLastToolCall(detailsContent, {
+                status: event.success ? 'success' : 'error',
+                result: event.result
+            });
+            break;
+            
+        case 'tool_call_error':
+            // 工具调用失败
+            updateLastToolCall(detailsContent, {
+                status: 'error',
+                error: event.error
+            });
+            break;
+            
+        case 'iteration_complete':
+            // 迭代完成
+            if (event.has_tool_calls) {
+                addDetailsItem(detailsContent, {
+                    type: 'info',
+                    title: '✅ 工具执行完成，继续处理',
+                    time: formatTime(event.timestamp)
+                });
+            } else {
+                addDetailsItem(detailsContent, {
+                    type: 'info',
+                    title: '✅ 处理完成',
+                    time: formatTime(event.timestamp)
+                });
+            }
+            break;
+            
+        case 'max_iterations_reached':
+            // 达到最大迭代次数
+            addDetailsItem(detailsContent, {
+                type: 'warning',
+                title: `⚠️ 已达到最大迭代次数 (${event.max_iterations})`,
+                time: formatTime(event.timestamp)
+            });
+            break;
+    }
+}
+
+function addDetailsItem(container, item) {
+    /**
+     * 添加详情项
+     */
+    const itemDiv = document.createElement('div');
+    itemDiv.className = `details-item details-${item.type}`;
+    if (item.id) itemDiv.id = item.id;
+    
+    let html = `
+        <div class="details-item-header">
+            <span class="details-item-title">${item.title}</span>
+            ${item.time ? `<span class="details-item-time">${item.time}</span>` : ''}
+        </div>
+    `;
+    
+    if (item.content) {
+        html += `<div class="details-item-content"><pre>${escapeHtml(item.content)}</pre></div>`;
+    }
+    
+    if (item.status) {
+        const statusClass = item.status === 'success' ? 'success' : item.status === 'error' ? 'error' : 'executing';
+        html += `<div class="details-item-status status-${statusClass}">`;
+        
+        if (item.status === 'executing') {
+            html += '⏳ 执行中...';
+        } else if (item.status === 'success') {
+            html += `✅ 成功<pre>${escapeHtml(JSON.stringify(item.result, null, 2))}</pre>`;
+        } else if (item.status === 'error') {
+            html += `❌ 失败: ${item.error || '未知错误'}`;
+        }
+        
+        html += '</div>';
+    }
+    
+    itemDiv.innerHTML = html;
+    container.appendChild(itemDiv);
+}
+
+function updateLastToolCall(container, update) {
+    /**
+     * 更新最后一个工具调用的状态
+     */
+    const toolCalls = container.querySelectorAll('.details-tool_call');
+    if (toolCalls.length === 0) return;
+    
+    const lastCall = toolCalls[toolCalls.length - 1];
+    const statusDiv = lastCall.querySelector('.details-item-status');
+    
+    if (statusDiv) {
+        statusDiv.className = `details-item-status status-${update.status}`;
+        
+        if (update.status === 'success') {
+            statusDiv.innerHTML = `✅ 成功<pre>${escapeHtml(JSON.stringify(update.result, null, 2))}</pre>`;
+        } else if (update.status === 'error') {
+            statusDiv.innerHTML = `❌ 失败: ${update.error || '未知错误'}`;
+        }
+    }
+}
+
+function formatTime(timestamp) {
+    /**
+     * 格式化时间戳
+     */
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function escapeHtml(text) {
+    /**
+     * 转义HTML特殊字符
+     */
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 

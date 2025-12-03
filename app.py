@@ -11,6 +11,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import traceback
+from mcp import MCPCoordinator, format_mcp_event_for_sse
 
 app = Flask(__name__)
 CORS(app)
@@ -539,7 +540,7 @@ def chat():
 
 @app.route('/api/chat/stream', methods=['POST'])
 def chat_stream():
-    """处理对话请求（流式）"""
+    """处理对话请求（流式）- 传统模式"""
     try:
         data = request.json
         model_id = data.get('model_id')
@@ -572,6 +573,76 @@ def chat_stream():
         # 流式调用模型
         return Response(
             stream_with_context(call_model_stream(model, messages, active_tools, params)),
+            mimetype='text/event-stream'
+        )
+        
+    except Exception as e:
+        traceback.print_exc()
+        def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        return Response(error_gen(), mimetype='text/event-stream')
+
+
+@app.route('/api/chat/mcp', methods=['POST'])
+def chat_mcp():
+    """处理对话请求（MCP协调模式）- 支持自动工具调用循环"""
+    try:
+        data = request.json
+        model_id = data.get('model_id')
+        messages = data.get('messages', [])
+        enabled_tools = data.get('enabled_tools', [])
+        params = data.get('params', {})
+        auto_parse = data.get('auto_parse', False)
+        
+        if not model_id or not messages:
+            def error_gen():
+                yield f"data: {json.dumps({'type': 'error', 'error': '缺少必要参数'})}\n\n"
+            return Response(error_gen(), mimetype='text/event-stream')
+        
+        # 获取模型配置
+        models = load_json_config(MODELS_CONFIG, [])
+        model = None
+        for m in models:
+            if m['id'] == model_id:
+                model = m
+                break
+        
+        if not model:
+            def error_gen():
+                yield f"data: {json.dumps({'type': 'error', 'error': '模型不存在'})}\n\n"
+            return Response(error_gen(), mimetype='text/event-stream')
+        
+        # 获取启用的工具
+        tools = load_json_config(TOOLS_CONFIG, [])
+        active_tools = [t for t in tools if t['id'] in enabled_tools and t.get('enabled', True)]
+        
+        # 创建模型调用函数（返回字典而非SSE格式）
+        def model_caller(msgs, tools_list, model_params):
+            """包装模型调用，将SSE格式转换为字典"""
+            for sse_chunk in call_model_stream(model, msgs, tools_list, model_params):
+                # SSE格式: "data: {...}\n\n"
+                if sse_chunk.startswith('data: '):
+                    json_str = sse_chunk[6:].strip()
+                    if json_str and json_str != '[DONE]':
+                        try:
+                            yield json.loads(json_str)
+                        except json.JSONDecodeError:
+                            pass
+        
+        # 创建工具执行函数
+        def tool_executor(tool_name, tool_args):
+            return execute_tool_call(tool_name, tool_args)
+        
+        # 创建MCP协调器
+        mcp = MCPCoordinator(model_caller, tool_executor)
+        
+        # 使用MCP协调器处理请求
+        def mcp_generator():
+            for event in mcp.coordinate_stream(messages, active_tools, params, auto_parse):
+                yield format_mcp_event_for_sse(event)
+        
+        return Response(
+            stream_with_context(mcp_generator()),
             mimetype='text/event-stream'
         )
         
