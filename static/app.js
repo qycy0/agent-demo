@@ -372,6 +372,38 @@ async function sendMessage() {
                             thinkingDiv.remove();
                         }
                         
+                        // 如果有内容但没有MCP事件，检查是否需要显示详情按钮
+                        // （非MCP模式下，如果有thinking或工具调用，也应该能查看详情）
+                        if (!autoParseEnabled && buffer) {
+                            const detailsBtn = messageBody.querySelector('.message-details-btn');
+                            const detailsPanel = messageBody.querySelector('.message-details-panel');
+                            const detailsContent = detailsPanel ? detailsPanel.querySelector('.details-content') : null;
+                            
+                            // 检查是否有thinking或工具调用
+                            const hasThinking = /<think>[\s\S]*?<\/think>/.test(buffer);
+                            const hasToolCall = /<tool_call[\s\S]*?>/.test(buffer) || /\w+\s*\(\s*\{/.test(buffer);
+                            
+                            if ((hasThinking || hasToolCall) && detailsBtn && detailsContent) {
+                                // 添加原始输出到详情
+                                const rawOutputItem = document.createElement('div');
+                                rawOutputItem.className = 'details-item';
+                                rawOutputItem.innerHTML = `
+                                    <div class="details-item-header">
+                                        <span class="details-item-icon">📝</span>
+                                        <span class="details-item-title">原始输出</span>
+                                        <span class="details-item-time">${formatTime(new Date())}</span>
+                                    </div>
+                                    <div class="details-item-content">
+                                        <pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em;">${escapeHtml(buffer)}</pre>
+                                    </div>
+                                `;
+                                detailsContent.appendChild(rawOutputItem);
+                                
+                                // 显示详情按钮
+                                detailsBtn.style.display = 'inline-flex';
+                            }
+                        }
+                        
                         // 如果启用了自动解析工具调用，尝试解析并执行
                         // 注意：在MCP模式下不需要这个，因为MCP已经处理了
                         if (!autoParseEnabled && elements.autoParseTools && elements.autoParseTools.checked && fullContent) {
@@ -713,14 +745,6 @@ function renderModels(models) {
                 </div>
             </div>
             <div class="item-info">
-                <div class="item-info-row">
-                    <span class="item-info-label">实际模型:</span>
-                    <span class="item-info-value">${model.actual_model_name || '未设置'}</span>
-                </div>
-                <div class="item-info-row">
-                    <span class="item-info-label">类型:</span>
-                    <span class="item-info-value">${model.model_type}</span>
-                </div>
                 <div class="item-info-row">
                     <span class="item-info-label">URL:</span>
                     <span class="item-info-value">${model.url}</span>
@@ -1532,9 +1556,12 @@ function handleMCPEvent(event, messageBody, statusDiv, textDiv, thinkingDiv, con
                 status: 'executing',
                 time: formatTime(event.timestamp)
             });
-            // 更新状态显示
+            // 更新状态显示（灰色小字）
             if (statusDiv) {
                 statusDiv.textContent = `🔧 调用 ${event.name}...`;
+                statusDiv.style.color = '#999';
+                statusDiv.style.fontSize = '0.85em';
+                statusDiv.style.display = 'block';
             }
             break;
             
@@ -1628,15 +1655,29 @@ function updateLastToolCall(container, update) {
     if (toolCalls.length === 0) return;
     
     const lastCall = toolCalls[toolCalls.length - 1];
-    const statusDiv = lastCall.querySelector('.details-item-status');
+    let statusDiv = lastCall.querySelector('.details-item-status');
+    
+    // 如果没有status div，创建一个
+    if (!statusDiv) {
+        statusDiv = document.createElement('div');
+        statusDiv.className = 'details-item-status';
+        lastCall.appendChild(statusDiv);
+    }
     
     if (statusDiv) {
         statusDiv.className = `details-item-status status-${update.status}`;
         
         if (update.status === 'success') {
-            statusDiv.innerHTML = `✅ 成功<pre>${escapeHtml(JSON.stringify(update.result, null, 2))}</pre>`;
+            // 显示完整的函数返回结果
+            const resultHtml = `
+                <div style="margin-top: 0.5rem;">
+                    <strong>✅ 执行成功</strong>
+                    <pre style="background: #f5f5f5; padding: 0.5rem; border-radius: 0.25rem; overflow-x: auto; margin-top: 0.25rem;">${escapeHtml(JSON.stringify(update.result, null, 2))}</pre>
+                </div>
+            `;
+            statusDiv.innerHTML = resultHtml;
         } else if (update.status === 'error') {
-            statusDiv.innerHTML = `❌ 失败: ${update.error || '未知错误'}`;
+            statusDiv.innerHTML = `<div style="margin-top: 0.5rem; color: #ff4b4b;"><strong>❌ 执行失败</strong><br>${escapeHtml(update.error || '未知错误')}</div>`;
         }
     }
 }

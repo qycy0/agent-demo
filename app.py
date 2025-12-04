@@ -7,14 +7,60 @@ import json
 import base64
 import requests
 import time
+import logging
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import traceback
 from mcp import MCPCoordinator, format_mcp_event_for_sse
 
+# 配置日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(name)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 CORS(app)
+
+# 请求日志中间件
+@app.before_request
+def log_request():
+    """记录所有请求"""
+    logger.info(f"━━━━ 新请求 ━━━━")
+    logger.info(f"Method: {request.method}")
+    logger.info(f"Path: {request.path}")
+    logger.info(f"IP: {request.remote_addr}")
+    if request.args:
+        logger.info(f"Query Params: {dict(request.args)}")
+    if request.method in ['POST', 'PUT', 'PATCH']:
+        try:
+            if request.is_json:
+                data = request.get_json()
+                # 对于大数据量的请求，只记录摘要
+                if isinstance(data, dict):
+                    if 'messages' in data:
+                        logger.info(f"Request Data: messages=[{len(data['messages'])} items], ...")
+                    else:
+                        logger.info(f"Request Data: {json.dumps(data, ensure_ascii=False, indent=2)[:500]}")
+                else:
+                    logger.info(f"Request Data: {str(data)[:500]}")
+        except Exception as e:
+            logger.warning(f"无法记录请求数据: {e}")
+
+@app.after_request
+def log_response(response):
+    """记录所有响应"""
+    logger.info(f"Response Status: {response.status_code}")
+    if response.status_code >= 400:
+        logger.error(f"Response Error: {response.get_data(as_text=True)[:500]}")
+    logger.info(f"━━━━ 请求结束 ━━━━\n")
+    return response
 
 # 配置文件路径
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), 'config')
@@ -301,69 +347,78 @@ def toggle_tool(tool_id):
 
 # ==================== 工具执行 ====================
 
-# 内置工具实现
-BUILTIN_TOOLS = {}
-
-def register_builtin_tool(name):
-    """装饰器：注册内置工具"""
-    def decorator(func):
-        BUILTIN_TOOLS[name] = func
-        return func
-    return decorator
-
-
-@register_builtin_tool('get_current_time')
-def tool_get_current_time(params):
-    """获取当前时间"""
-    from datetime import datetime
-    timezone = params.get('timezone', 'UTC')
-    now = datetime.now()
-    return {
-        'success': True,
-        'result': {
-            'time': now.strftime('%Y-%m-%d %H:%M:%S'),
-            'timezone': timezone,
-            'timestamp': int(now.timestamp())
-        }
-    }
-
-
-@register_builtin_tool('calculate')
-def tool_calculate(params):
-    """计算数学表达式"""
-    try:
-        expression = params.get('expression', '')
-        # 安全计算，只允许基本数学运算
-        allowed_chars = set('0123456789+-*/().,e ')
-        if not all(c in allowed_chars for c in expression):
-            return {'success': False, 'error': '表达式包含非法字符'}
-        
-        result = eval(expression, {"__builtins__": {}}, {})
+# 导入内置工具（模块化结构）
+try:
+    from builtin_tools import BUILTIN_TOOLS, BUILTIN_SCHEMAS, list_schemas
+    print("✓ 使用模块化 Built-in 工具")
+except ImportError as e:
+    print(f"✗ 无法加载 builtin_tools 模块: {e}")
+    print("✓ 使用内联 Built-in 工具定义（fallback）")
+    
+    # Fallback: 内联定义（如果模块加载失败）
+    BUILTIN_TOOLS = {}
+    BUILTIN_SCHEMAS = {}
+    
+    def register_builtin_tool(name):
+        """装饰器：注册内置工具"""
+        def decorator(func):
+            BUILTIN_TOOLS[name] = func
+            return func
+        return decorator
+    
+    @register_builtin_tool('get_current_time')
+    def tool_get_current_time(params):
+        """获取当前时间"""
+        from datetime import datetime
+        timezone = params.get('timezone', 'UTC')
+        now = datetime.now()
         return {
             'success': True,
             'result': {
-                'expression': expression,
-                'value': result
+                'time': now.strftime('%Y-%m-%d %H:%M:%S'),
+                'timezone': timezone,
+                'timestamp': int(now.timestamp())
             }
         }
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
-
-
-@register_builtin_tool('search_web')
-def tool_search_web(params):
-    """模拟网络搜索（示例）"""
-    query = params.get('query', '')
-    return {
-        'success': True,
-        'result': {
-            'query': query,
-            'results': [
-                {'title': f'搜索结果1: {query}', 'snippet': '这是一个示例搜索结果'},
-                {'title': f'搜索结果2: {query}', 'snippet': '这是另一个示例搜索结果'}
-            ]
+    
+    @register_builtin_tool('calculate')
+    def tool_calculate(params):
+        """计算数学表达式"""
+        try:
+            expression = params.get('expression', '')
+            allowed_chars = set('0123456789+-*/().,e ')
+            if not all(c in allowed_chars for c in expression):
+                return {'success': False, 'error': '表达式包含非法字符'}
+            
+            result = eval(expression, {"__builtins__": {}}, {})
+            return {
+                'success': True,
+                'result': {
+                    'expression': expression,
+                    'value': result
+                }
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    @register_builtin_tool('search_web')
+    def tool_search_web(params):
+        """模拟网络搜索"""
+        query = params.get('query', '')
+        return {
+            'success': True,
+            'result': {
+                'query': query,
+                'results': [
+                    {'title': f'搜索结果1: {query}', 'snippet': '这是一个示例搜索结果'},
+                    {'title': f'搜索结果2: {query}', 'snippet': '这是另一个示例搜索结果'}
+                ]
+            }
         }
-    }
+    
+    def list_schemas():
+        """Fallback: 返回空列表"""
+        return []
 
 
 @app.route('/api/tools/execute', methods=['POST'])
@@ -444,56 +499,58 @@ def execute_tool():
 @app.route('/api/tools/builtin', methods=['GET'])
 def get_builtin_tools():
     """获取内置工具列表"""
-    builtin_tools = []
-    
-    # 定义内置工具的Schema
-    builtin_schemas = {
-        'get_current_time': {
-            'name': 'get_current_time',
-            'description': '获取当前日期和时间',
-            'parameters': {
-                'type': 'object',
-                'properties': {
-                    'timezone': {
-                        'type': 'string',
-                        'description': '时区，如 UTC, Asia/Shanghai'
+    try:
+        # 尝试使用模块化的 schemas
+        builtin_tools = list_schemas()
+    except:
+        # Fallback: 使用内联定义
+        builtin_tools = []
+        builtin_schemas = {
+            'get_current_time': {
+                'name': 'get_current_time',
+                'description': '获取当前日期和时间',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'timezone': {
+                            'type': 'string',
+                            'description': '时区，如 UTC, Asia/Shanghai'
+                        }
                     }
                 }
-            }
-        },
-        'calculate': {
-            'name': 'calculate',
-            'description': '计算数学表达式，支持加减乘除和括号',
-            'parameters': {
-                'type': 'object',
-                'properties': {
-                    'expression': {
-                        'type': 'string',
-                        'description': '要计算的数学表达式，如 "2 + 3 * 4"'
-                    }
-                },
-                'required': ['expression']
-            }
-        },
-        'search_web': {
-            'name': 'search_web',
-            'description': '搜索网络信息（示例工具）',
-            'parameters': {
-                'type': 'object',
-                'properties': {
-                    'query': {
-                        'type': 'string',
-                        'description': '搜索关键词'
-                    }
-                },
-                'required': ['query']
+            },
+            'calculate': {
+                'name': 'calculate',
+                'description': '计算数学表达式',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'expression': {
+                            'type': 'string',
+                            'description': '要计算的数学表达式'
+                        }
+                    },
+                    'required': ['expression']
+                }
+            },
+            'search_web': {
+                'name': 'search_web',
+                'description': '搜索网络信息',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'query': {
+                            'type': 'string',
+                            'description': '搜索关键词'
+                        }
+                    },
+                    'required': ['query']
+                }
             }
         }
-    }
-    
-    for name in BUILTIN_TOOLS.keys():
-        if name in builtin_schemas:
-            builtin_tools.append(builtin_schemas[name])
+        for name in BUILTIN_TOOLS.keys():
+            if name in builtin_schemas:
+                builtin_tools.append(builtin_schemas[name])
     
     return jsonify({'success': True, 'tools': builtin_tools})
 
@@ -655,6 +712,10 @@ def chat_mcp():
 
 def execute_tool_call(tool_name, tool_arguments):
     """执行单个工具调用"""
+    logger.info(f"🔧 执行工具调用: {tool_name}")
+    logger.debug(f"   参数: {json.dumps(tool_arguments, ensure_ascii=False)}")
+    
+    start_time = time.time()
     try:
         # 获取工具配置
         tools = load_json_config(TOOLS_CONFIG, [])
@@ -665,12 +726,17 @@ def execute_tool_call(tool_name, tool_arguments):
                 break
         
         if not tool_config:
+            logger.error(f"   ❌ 工具未注册: {tool_name}")
             return {'success': False, 'error': f'工具 {tool_name} 未注册'}
         
         # 执行工具
         # 1. 优先使用内置工具
         if tool_name in BUILTIN_TOOLS:
+            logger.info(f"   使用内置工具: {tool_name}")
             result = BUILTIN_TOOLS[tool_name](tool_arguments)
+            elapsed = time.time() - start_time
+            logger.info(f"   ✅ 执行成功 ({elapsed:.2f}s)")
+            logger.debug(f"   结果: {json.dumps(result, ensure_ascii=False)[:500]}")
             return result
         
         # 2. 如果工具配置了外部API
@@ -679,33 +745,57 @@ def execute_tool_call(tool_name, tool_arguments):
             api_method = tool_config.get('api_method', 'POST').upper()
             api_headers = tool_config.get('api_headers', {})
             
+            logger.info(f"   调用外部API: {api_method} {api_url}")
+            
             if api_method == 'POST':
                 response = requests.post(api_url, json=tool_arguments, headers=api_headers, timeout=30)
             elif api_method == 'GET':
                 response = requests.get(api_url, params=tool_arguments, headers=api_headers, timeout=30)
             else:
+                logger.error(f"   ❌ 不支持的HTTP方法: {api_method}")
                 return {'success': False, 'error': f'不支持的HTTP方法: {api_method}'}
             
+            elapsed = time.time() - start_time
             if response.status_code in [200, 201]:
-                return {'success': True, 'result': response.json()}
+                result = {'success': True, 'result': response.json()}
+                logger.info(f"   ✅ API调用成功 ({elapsed:.2f}s)")
+                logger.debug(f"   响应: {response.text[:500]}")
+                return result
             else:
+                logger.error(f"   ❌ API调用失败: HTTP {response.status_code} ({elapsed:.2f}s)")
+                logger.debug(f"   响应: {response.text[:500]}")
                 return {'success': False, 'error': f'工具API调用失败: HTTP {response.status_code}'}
         
         # 3. 如果工具配置了Python代码
         if 'code' in tool_config:
+            logger.info(f"   执行自定义代码")
             local_vars = {'params': tool_arguments, 'result': None}
             exec(tool_config['code'], {"__builtins__": {}}, local_vars)
-            return {'success': True, 'result': local_vars.get('result')}
+            elapsed = time.time() - start_time
+            result = {'success': True, 'result': local_vars.get('result')}
+            logger.info(f"   ✅ 代码执行成功 ({elapsed:.2f}s)")
+            logger.debug(f"   结果: {json.dumps(result, ensure_ascii=False)[:500]}")
+            return result
         
+        logger.error(f"   ❌ 工具未配置执行方法")
         return {'success': False, 'error': '工具未配置执行方法'}
         
     except Exception as e:
-        traceback.print_exc()
+        elapsed = time.time() - start_time
+        logger.error(f"   ❌ 工具执行异常 ({elapsed:.2f}s): {e}")
+        logger.error(traceback.format_exc())
         return {'success': False, 'error': str(e)}
 
 
 def call_model_stream(model, messages, tools, params):
     """流式调用模型 API，支持工具调用"""
+    logger.info(f"🤖 调用模型: {model.get('name', 'Unknown')}")
+    logger.debug(f"   模型类型: {model.get('model_type')}")
+    logger.debug(f"   URL: {model.get('url')}")
+    logger.debug(f"   消息数量: {len(messages)}")
+    logger.debug(f"   工具数量: {len(tools) if tools else 0}")
+    logger.debug(f"   参数: {params}")
+    
     try:
         # 发送初始thinking状态
         yield f"data: {json.dumps({'type': 'status', 'status': 'thinking'})}\n\n"
@@ -808,11 +898,31 @@ def call_model_stream(model, messages, tools, params):
             if not url.endswith('/messages'):
                 url = f"{url.rstrip('/')}/messages"
         
+        # 记录请求数据（隐藏敏感信息）
+        request_data_log = request_data.copy()
+        # 只记录消息摘要，避免日志过大
+        if 'messages' in request_data_log:
+            messages_summary = []
+            for msg in request_data_log['messages']:
+                msg_summary = {'role': msg.get('role')}
+                content = msg.get('content', '')
+                if isinstance(content, str):
+                    msg_summary['content'] = content[:100] + ('...' if len(content) > 100 else '')
+                else:
+                    msg_summary['content'] = '[multimodal]'
+                messages_summary.append(msg_summary)
+            request_data_log['messages'] = messages_summary
+        
+        logger.debug(f"   请求数据: {json.dumps(request_data_log, ensure_ascii=False, indent=2)}")
+        
         # 发送流式请求
+        logger.debug(f"   发送请求到: {url}")
         response = requests.post(url, json=request_data, headers=headers, stream=True, timeout=60)
+        logger.debug(f"   响应状态: {response.status_code}")
         
         if response.status_code in [200, 201]:
             first_content = True
+            accumulated_response = ''  # 累积响应内容用于日志
             # 处理流式响应
             for line in response.iter_lines():
                 if line:
@@ -833,6 +943,9 @@ def call_model_stream(model, messages, tools, params):
                                     yield f"data: {json.dumps({'type': 'status', 'status': 'function_calling'})}\n\n"
                                 
                                 if content:
+                                    # 累积响应内容
+                                    accumulated_response += content
+                                    
                                     # 第一次收到内容时，切换到answering状态
                                     if first_content:
                                         yield f"data: {json.dumps({'type': 'status', 'status': 'answering'})}\n\n"
@@ -845,6 +958,9 @@ def call_model_stream(model, messages, tools, params):
                                 if data.get('type') == 'content_block_delta':
                                     content = data.get('delta', {}).get('text', '')
                                     if content:
+                                        # 累积响应内容
+                                        accumulated_response += content
+                                        
                                         if first_content:
                                             yield f"data: {json.dumps({'type': 'status', 'status': 'answering'})}\n\n"
                                             first_content = False
@@ -852,31 +968,46 @@ def call_model_stream(model, messages, tools, params):
                         except json.JSONDecodeError:
                             pass
             
+            # 记录完整的模型响应
+            if accumulated_response:
+                response_preview = accumulated_response[:500] + ('...' if len(accumulated_response) > 500 else '')
+                logger.info(f"   ✅ 模型响应完成 (长度: {len(accumulated_response)} 字符)")
+                logger.debug(f"   响应内容: {response_preview}")
+            else:
+                logger.warning(f"   ⚠️ 模型响应为空")
+            
             # 发送完成信号
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         else:
+            logger.error(f"   ❌ API调用失败: HTTP {response.status_code}")
             error_msg = f'API 调用失败: HTTP {response.status_code}'
             try:
                 error_detail = response.json()
                 if 'error' in error_detail:
                     error_msg += f" - {error_detail['error'].get('message', '')}"
+                    logger.error(f"   错误详情: {error_detail}")
             except:
-                error_msg += f" - {response.text[:200]}"
+                error_text = response.text[:200]
+                error_msg += f" - {error_text}"
+                logger.error(f"   错误响应: {error_text}")
             
             yield f"data: {json.dumps({'type': 'status', 'status': 'error'})}\n\n"
             yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             
     except requests.exceptions.Timeout:
+        logger.error(f"   ❌ 请求超时")
         yield f"data: {json.dumps({'type': 'status', 'status': 'error'})}\n\n"
         yield f"data: {json.dumps({'type': 'error', 'error': '请求超时，请稍后重试'})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"   ❌ 连接错误: {e}")
         yield f"data: {json.dumps({'type': 'status', 'status': 'error'})}\n\n"
         yield f"data: {json.dumps({'type': 'error', 'error': '无法连接到模型服务器'})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
     except Exception as e:
-        traceback.print_exc()
+        logger.error(f"   ❌ 未知错误: {e}")
+        logger.error(traceback.format_exc())
         yield f"data: {json.dumps({'type': 'status', 'status': 'error'})}\n\n"
         yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"

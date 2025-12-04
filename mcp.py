@@ -6,8 +6,12 @@ Model Context Protocol (MCP) - 工具调用协调器
 import json
 import re
 import traceback
+import logging
 from typing import Dict, List, Any, Optional, Generator
 from datetime import datetime
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 class MCPCoordinator:
@@ -44,11 +48,19 @@ class MCPCoordinator:
         Yields:
             MCP事件流
         """
+        logger.info(f"🔄 MCP协调开始")
+        logger.debug(f"   消息数量: {len(messages)}")
+        logger.debug(f"   工具数量: {len(tools)}")
+        logger.debug(f"   自动解析: {auto_parse}")
+        logger.debug(f"   最大迭代: {self.max_iterations}")
+        
         current_messages = messages.copy()
         iteration = 0
         
         while iteration < self.max_iterations:
             iteration += 1
+            
+            logger.info(f"   🔁 第 {iteration} 轮迭代开始")
             
             # 发送迭代开始事件
             yield self._create_event('iteration_start', {
@@ -120,6 +132,9 @@ class MCPCoordinator:
                 
                 tool_results = []
                 for tool_call in tool_calls:
+                    logger.info(f"      🔧 执行工具: {tool_call['name']}")
+                    logger.debug(f"         参数: {json.dumps(tool_call['arguments'], ensure_ascii=False)}")
+                    
                     # 发送工具调用开始事件
                     yield self._create_event('tool_call_start', {
                         'name': tool_call['name'],
@@ -132,6 +147,9 @@ class MCPCoordinator:
                             tool_call['name'],
                             tool_call['arguments']
                         )
+                        
+                        logger.info(f"         ✅ 工具执行成功")
+                        logger.debug(f"         结果: {json.dumps(result, ensure_ascii=False)[:300]}")
                         
                         tool_results.append({
                             'name': tool_call['name'],
@@ -255,7 +273,7 @@ class MCPCoordinator:
     def _parse_tool_calls(self, content: str) -> List[Dict]:
         """
         从模型输出中解析工具调用
-        支持多种格式
+        支持多种格式，具有鲁棒性处理
         """
         tool_calls = []
         
@@ -272,32 +290,134 @@ class MCPCoordinator:
             except json.JSONDecodeError:
                 pass
         
+        # 格式1b: 未封闭的<tool_call>（流式输出时可能出现）
+        # 查找最后一个<tool_call>，如果没有对应的</tool_call>，尝试解析
+        last_open_tag_idx = content.rfind('<tool_call>')
+        if last_open_tag_idx != -1:
+            # 检查这个<tool_call>是否已经被format1处理
+            after_last_open = content[last_open_tag_idx:]
+            if '</tool_call>' not in after_last_open:
+                # 未封闭的tool_call，尝试提取内容
+                json_content = after_last_open[11:].strip()  # 11 = len('<tool_call>')
+                
+                # 尝试多种JSON提取策略
+                # 策略1: 直接解析（可能完整）
+                try:
+                    call_data = json.loads(json_content)
+                    if 'name' in call_data and call_data['name'] not in [t['name'] for t in tool_calls]:
+                        tool_calls.append({
+                            'name': call_data['name'],
+                            'arguments': call_data.get('arguments', {})
+                        })
+                except json.JSONDecodeError:
+                    # 策略2: 尝试找到JSON的部分（可能被截断）
+                    # 查找可能的JSON结构（可能不完整）
+                    json_match = re.search(r'(\{[\s\S]*)', json_content)
+                    if json_match:
+                        potential_json = json_match.group(1)
+                        # 尝试多种补全方式
+                        # 注意：被截断的JSON可能是：{"name":"tool","argu
+                        # 我们需要补全成：{"name":"tool","arguments":{}} 或 {"name":"tool"}
+                        attempts = [
+                            potential_json,          # 原样
+                            potential_json + '}',    # 补一个右括号
+                            potential_json + '}}',   # 补两个右括号
+                            potential_json + '""}',  # 补引号和括号
+                            potential_json + '":""}', # 补完整的键值对
+                        ]
+                        
+                        # 如果看起来是被截断的键（如 "argu），尝试移除它
+                        if re.search(r'[,\{]\s*"[^"]*$', potential_json):
+                            # 移除最后不完整的键
+                            cleaned = re.sub(r'[,\{]\s*"[^"]*$', '', potential_json)
+                            attempts.extend([
+                                cleaned + '}',
+                                cleaned + '}}',
+                            ])
+                        
+                        for attempt in attempts:
+                            try:
+                                call_data = json.loads(attempt)
+                                if 'name' in call_data and call_data['name'] not in [t['name'] for t in tool_calls]:
+                                    tool_calls.append({
+                                        'name': call_data['name'],
+                                        'arguments': call_data.get('arguments', {})
+                                    })
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+        
         # 格式2: <tool_call name="..." arguments='...'/>
         regex2 = r'<tool_call\s+name="([^"]+)"\s+arguments=\'([^\']+)\'\s*/>'
         for match in re.finditer(regex2, content):
             try:
                 args = json.loads(match.group(2))
-                tool_calls.append({
-                    'name': match.group(1),
-                    'arguments': args
-                })
-            except json.JSONDecodeError:
-                pass
-        
-        # 格式3: 函数调用格式（在</think>后）
-        think_end_idx = content.rfind('</think>')
-        if think_end_idx != -1:
-            after_think = content[think_end_idx + 8:]
-            regex3 = r'(\w+)\s*\(\s*({[\s\S]*?})\s*\)'
-            for match in re.finditer(regex3, after_think):
-                try:
-                    args = json.loads(match.group(2))
+                if match.group(1) not in [t['name'] for t in tool_calls]:
                     tool_calls.append({
                         'name': match.group(1),
                         'arguments': args
                     })
+            except json.JSONDecodeError:
+                pass
+        
+        # 格式2b: 未封闭的属性格式 <tool_call name="..." (可能未完成)
+        regex2b = r'<tool_call\s+name="([^"]+)"(?:\s+arguments=[\'"]([^\'"]*)[\'"]?)?(?!/>)'
+        for match in re.finditer(regex2b, content):
+            tool_name = match.group(1)
+            if tool_name not in [t['name'] for t in tool_calls]:
+                args_str = match.group(2) if match.group(2) else '{}'
+                try:
+                    # 尝试解析参数
+                    args = json.loads(args_str) if args_str else {}
+                    tool_calls.append({
+                        'name': tool_name,
+                        'arguments': args
+                    })
+                except json.JSONDecodeError:
+                    # 参数解析失败，使用空参数
+                    tool_calls.append({
+                        'name': tool_name,
+                        'arguments': {}
+                    })
+        
+        # 格式3: 函数调用格式（在</think>后或整个内容中）
+        # 先尝试</think>之后
+        think_end_idx = content.rfind('</think>')
+        search_area = content[think_end_idx + 8:] if think_end_idx != -1 else content
+        
+        # 完整的函数调用
+        regex3 = r'(\w+)\s*\(\s*(\{[\s\S]*?\})\s*\)'
+        for match in re.finditer(regex3, search_area):
+            func_name = match.group(1)
+            if func_name not in [t['name'] for t in tool_calls]:
+                try:
+                    args = json.loads(match.group(2))
+                    tool_calls.append({
+                        'name': func_name,
+                        'arguments': args
+                    })
                 except json.JSONDecodeError:
                     pass
+        
+        # 格式3b: 未封闭的函数调用 function_name({...  （没有闭合括号）
+        regex3b = r'(\w+)\s*\(\s*(\{[\s\S]*?)$'
+        for match in re.finditer(regex3b, search_area):
+            func_name = match.group(1)
+            # 避免误匹配普通文本，检查是否真的像工具调用
+            if func_name.islower() or '_' in func_name:  # 工具名通常是小写或包含下划线
+                if func_name not in [t['name'] for t in tool_calls]:
+                    json_part = match.group(2).strip()
+                    # 尝试补全JSON
+                    for attempt in [json_part, json_part + '}', json_part + '}}']:
+                        try:
+                            args = json.loads(attempt)
+                            tool_calls.append({
+                                'name': func_name,
+                                'arguments': args
+                            })
+                            break
+                        except json.JSONDecodeError:
+                            continue
         
         return tool_calls
     

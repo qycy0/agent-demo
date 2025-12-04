@@ -1,0 +1,54 @@
+{
+    "get_current_time": {
+        "name": "get_current_time",
+        "description": "获取当前日期和时间",
+        "category": "datetime",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "timezone": {
+                    "type": "string",
+                    "description": "时区，例如 'Asia/Shanghai', 'America/New_York', 'UTC' 等",
+                    "default": "UTC"
+                },
+                "format": {
+                    "type": "string",
+                    "description": "时间格式：'12h'（12小时制）或 '24h'（24小时制）",
+                    "enum": ["12h", "24h"],
+                    "default": "24h"
+                }
+            }
+        }
+    },
+    "calculate": {
+        "name": "calculate",
+        "description": "计算数学表达式，支持基本四则运算、幂运算等",
+        "category": "math",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "要计算的数学表达式，例如 '2+3*4', '(10-5)/2', '2^8' 等"
+                }
+            },
+            "required": ["expression"]
+        }
+    },
+    "search_web": {
+        "name": "search_web",
+        "description": "搜索网络信息（示例工具，返回模拟结果）",
+        "category": "search",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "搜索查询关键词"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}
+

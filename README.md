@@ -1,27 +1,57 @@
 # 行业智能通用运维模型2.0
 
-一个功能完整的行业级智能运维平台，支持模型注册、工具管理和智能对话。
+**版本**: v2.7.5 | **更新日期**: 2024-12-04
+
+一个功能完整的行业级智能运维平台，支持模型注册、工具管理、智能对话和多轮工具调用。
+
+## 📚 文档导航
+
+- **[📖 完整文档索引](docs/INDEX.md)** - 所有文档的导航中心
+- **[📝 使用指南](docs/USAGE.md)** - 基础操作指南
+- **[🔧 工具开发](docs/guides/BUILTIN_TOOLS_GUIDE.md)** - 开发内置工具
+- **[🔄 MCP 系统](docs/guides/MCP_GUIDE.md)** - Model Context Protocol 详解
+- **[📊 日志系统](docs/logging/LOG_GUIDE.md)** - 日志使用和调试
+- **[📋 更新日志](CHANGELOG.md)** - 完整版本历史
+- **[✨ 功能概览](FEATURES.md)** - 所有功能列表
 
 ## 功能特性
 
 ### 🎯 模型管理
 - 支持多种模型类型（OpenAI、Claude、自定义）
-- 模型连接测试
-- 动态模型注册和删除
+- 模型连接测试和验证
+- 动态模型注册、编辑和删除
 - 支持 API Key 认证
+- 自定义系统提示词
 
 ### 🔧 工具管理
-- 自定义工具注册
+- **三种工具类型**：内置工具、外部 API、自定义代码
 - JSON Schema 参数定义
 - 工具启用/禁用控制
 - 工具动态加载
+- 模块化内置工具开发
 
-### 💬 对话功能
-- 实时对话交互
-- 模型参数调节（Temperature、Max Tokens、Top P）
-- 图片上传支持
-- 工具选择性激活
-- 对话历史管理
+### 💬 智能对话
+- **流式输出**：实时显示模型思考过程
+- **多模态输入**：支持文本、图片、视频上传
+- **模型参数**：Temperature、Max Tokens、Top P、Presence/Frequency Penalty
+- **工具调用**：自动解析和执行工具
+- **对话历史**：完整的多轮对话管理
+- **详情面板**：查看模型 thinking 和工具执行过程
+
+### 🔄 MCP 系统 (Model Context Protocol)
+- **自动多轮调用**：模型自动调用工具直到获得最终答案
+- **工具编排**：智能管理工具调用顺序和结果
+- **过程可视化**：实时显示 thinking、工具调用状态
+- **错误处理**：优雅处理工具执行失败
+- **详细日志**：完整记录每轮交互过程
+
+### 📊 日志系统
+- **完整请求日志**：记录所有 HTTP 请求和响应
+- **模型调用日志**：完整的请求参数和返回内容
+- **工具执行日志**：参数、结果、执行时间
+- **MCP 协调日志**：多轮交互的完整过程
+- **日志级别控制**：DEBUG/INFO/WARNING/ERROR
+- **实时监控**：`tail -f app.log` 实时查看
 
 ## 快速开始
 
@@ -135,18 +165,43 @@ bash start.sh
 
 ```
 mobile-agent/
-├── app.py                 # Flask 后端服务
-├── requirements.txt       # Python 依赖
-├── start.sh              # 启动脚本
-├── README.md             # 文档
-├── config/               # 配置文件目录
-│   ├── models.json       # 模型配置
-│   └── tools.json        # 工具配置
-├── uploads/              # 上传文件目录
-└── static/               # 前端文件
-    ├── index.html        # 主页面
-    ├── style.css         # 样式文件
-    └── app.js            # 前端逻辑
+├── app.py                    # Flask 后端服务
+├── mcp.py                    # MCP 协调器
+├── requirements.txt          # Python 依赖
+├── start.sh                  # 启动脚本
+├── README.md                 # 项目主文档
+├── CHANGELOG.md              # 完整更新日志
+├── FEATURES.md               # 功能概览
+│
+├── docs/                     # 📁 文档目录
+│   ├── INDEX.md              # 文档索引
+│   ├── USAGE.md              # 使用指南
+│   ├── guides/               # 详细指南
+│   │   ├── MCP_GUIDE.md
+│   │   ├── BUILTIN_TOOLS_GUIDE.md
+│   │   ├── TOOL_API.md
+│   │   └── ...
+│   └── logging/              # 日志文档
+│       ├── LOG_GUIDE.md
+│       └── LOG_EXAMPLE.md
+│
+├── builtin_tools/            # 📁 内置工具
+│   ├── __init__.py
+│   ├── schemas.json
+│   ├── datetime_tools.py
+│   ├── math_tools.py
+│   └── search_tools.py
+│
+├── models/                   # 模型配置
+│   └── *.json
+├── tools/                    # 工具配置
+│   └── *.json
+├── uploads/                  # 上传文件
+│
+└── static/                   # 📁 前端资源
+    ├── index.html
+    ├── style.css
+    └── app.js
 ```
 
 ## 技术栈
@@ -192,12 +247,19 @@ A: 请检查：
 
 ## 更新日志
 
-### v1.0.0 (2024-12-03)
-- ✨ 初始版本发布
-- 🎯 模型管理功能
-- 🔧 工具管理功能
-- 💬 对话功能
-- 🖼️ 图片上传支持
+### 最新版本 v2.7.5 (2024-12-04)
+- ✨ 完整的日志系统（记录请求/响应/工具执行）
+- 📊 模型调用参数和返回结果日志
+- 🔍 详细的调试信息
+- 📝 文档整理和索引优化
+
+### 主要版本里程碑
+- **v2.7.x** - 日志系统、内置工具模块化、状态管理优化
+- **v2.6.x** - MCP 系统、多轮工具调用、详情面板
+- **v2.5.x** - 流式输出、thinking 显示、工具自动解析
+- **v2.0.x** - 完整重构、现代化 UI、模型管理
+
+**[查看完整更新日志 →](CHANGELOG.md)**
 
 ## 许可证
 
